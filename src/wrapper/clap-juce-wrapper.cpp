@@ -1404,8 +1404,12 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
             return 0;
         }
 
-        return uint32_t(
-            juce::roundToIntAccurate((double)sampleRate() * processor->getTailLengthSeconds()));
+        // an infinite tail, as the VST3 and AU wrappers accept it, would overflow the conversion
+        const auto samples = (double)sampleRate() * processor->getTailLengthSeconds();
+        if (!(samples < (double)INT32_MAX))
+            return INT32_MAX;
+
+        return uint32_t(juce::roundToIntAccurate(samples));
     }
 
     bool implementsRender() const noexcept override { return true; }
