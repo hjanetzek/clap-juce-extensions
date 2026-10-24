@@ -495,7 +495,7 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
     ~ClapJuceWrapper() override
     {
 #if JUCE_LINUX
-        if (_host.canUseTimerSupport())
+        if (idleTimer != CLAP_INVALID_ID)
         {
             _host.timerSupportUnregister(idleTimer);
         }
@@ -505,9 +505,12 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
     bool init() noexcept override
     {
 #if JUCE_LINUX
+        // the host may only query our timer support once init() has returned, so the timer is
+        // registered from the first main thread callback
         if (_host.canUseTimerSupport())
         {
-            _host.timerSupportRegister(1000 / 50, &idleTimer);
+            idleTimerPending = true;
+            _host.requestCallback();
         }
 #endif
         defineAudioPorts();
@@ -539,7 +542,8 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
 #endif
     }
 
-    clap_id idleTimer{0};
+    clap_id idleTimer{CLAP_INVALID_ID};
+    bool idleTimerPending{false};
 
     static uint32_t generateClapIDForJuceParam(juce::AudioProcessorParameter *param)
     {
@@ -1372,6 +1376,15 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
 
     void onMainThread() noexcept override
     {
+#if JUCE_LINUX
+        if (idleTimerPending)
+        {
+            idleTimerPending = false;
+            if (!_host.timerSupportRegister(1000 / 50, &idleTimer))
+                idleTimer = CLAP_INVALID_ID;
+        }
+#endif
+
         // handle parameter change listener callbacks
         juce::ScopedValueSetter<bool> suppressCallbacks{supressParameterChangeMessages, true};
         ParamListenerCall listenerCall{};
